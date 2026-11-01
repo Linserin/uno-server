@@ -70,7 +70,7 @@ func InitUNO_Mem(roomID int) {
 	var CardCounts int
 	var forWhich int = 1
 	for _, Card := range allCards {
-		slog.Info("Deliver Card", "player", forWhich, "Card", Card)
+		slog.Debug("Deliver Card", "player", forWhich, "Card", Card)
 		forWhich++
 		// 玩家 1-4
 		if forWhich == 5 {
@@ -100,14 +100,14 @@ func InitUNO_Mem(roomID int) {
 
 	}
 
-	file, err := os.Create(strconv.Itoa(roomID) + ".txt")
+	file, err := os.Create(strconv.Itoa(roomID) + ".json")
 	if err != nil {
-		fmt.Println(err)
+		slog.Error("[init_uno_data/init.go] An error occurred", "error", err)
 		return
 	}
 
 	jsonContent, err := json.Marshal(delivrCard)
-	err = os.WriteFile(strconv.Itoa(roomID)+".txt", jsonContent, 0644)
+	err = os.WriteFile(strconv.Itoa(roomID)+".json", jsonContent, 0644)
 	if err != nil {
 		slog.Error("An error occurred", "error", err)
 	}

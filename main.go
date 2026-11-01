@@ -8,6 +8,9 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"strconv"
+	"uno-server/gamelogic"
+	"uno-server/grateful_error"
 	"uno-server/init_uno_data"
 )
 
@@ -69,9 +72,10 @@ func main() {
 	mw := io.MultiWriter(os.Stdout, f) // 一份数据写两处
 
 	logger := slog.New(slog.NewJSONHandler(mw, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: slog.LevelDebug,
 	}))
 	slog.SetDefault(logger)
+
 	slog.Info("Hello, UNO Server!!!")
 	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "pong")
@@ -82,6 +86,35 @@ func main() {
 		init_uno_data.InitUNO_Mem(API_UNO_POST_Data.RoomID)
 		slog.Info("New room generated", "RoomID", API_UNO_POST_Data.RoomID)
 		fmt.Fprintln(w, API_UNO_POST_Data.RoomID)
+	})
+
+	http.HandleFunc("/fetchPlayerCards", func(w http.ResponseWriter, r *http.Request) {
+		// 转换为 int
+		intRoomID, err := strconv.Atoi(r.URL.Query().Get("roomID"))
+		if err != nil {
+			slog.Error("[main.go] An error occurred", "error", err)
+			fmt.Fprintln(w, grateful_error.Grateful_Error(err.Error()))
+			return
+		}
+		intPlayerID, err := strconv.Atoi(r.URL.Query().Get("playerID"))
+		if err != nil {
+			slog.Error("[main.go] An error occurred", "error", err)
+			fmt.Fprintln(w, grateful_error.Grateful_Error(err.Error()))
+			return
+		}
+		// 判断玩家 ID
+		if intPlayerID > 4 || intPlayerID < 1 {
+			slog.Info("Incorrect Player ID")
+			fmt.Fprint(w, grateful_error.Grateful_Error("Incorrect Player ID"))
+			return
+		}
+		cardsInPlayer, err := gamelogic.Player_Get_Their_Card(intRoomID, intPlayerID)
+		if err != nil {
+			fmt.Fprintln(w, grateful_error.Grateful_Error(err.Error()))
+		} else {
+			fmt.Fprintln(w, cardsInPlayer)
+		}
+		fmt.Println(cardsInPlayer)
 	})
 
 	// 监听
