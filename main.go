@@ -51,7 +51,6 @@ b.若质疑失败，即打出+4的玩家没有违规使用+4，则被加牌玩�
 
 Wild（Change Color）：521-524
 */
-// 指定人数（创建房间时有问题）
 type API_UnoStru struct {
 	RoomID int `json:"roomID"`
 	Cardid int `json:"cardID"`
@@ -126,6 +125,21 @@ func main() {
 			fmt.Fprintln(w, jsonify.GoodResp(fmt.Sprint(cardsInPlayer)))
 		}
 		fmt.Println(cardsInPlayer)
+	})
+	// Action 路由
+	http.HandleFunc("/action", func(w http.ResponseWriter, r *http.Request) {
+		roomID, err := strconv.Atoi(r.URL.Query().Get("roomID"))
+		player, err := strconv.Atoi(r.URL.Query().Get("player"))
+		card, err := strconv.Atoi(r.URL.Query().Get("card"))
+		if err != nil {
+			fmt.Fprintln(w, jsonify.GoodResp(err.Error()))
+			return
+		}
+		err = gamelogic.Logic_main(roomID, player, card)
+		if err != nil {
+			fmt.Fprintln(w, jsonify.GoodResp(err.Error()))
+			return
+		}
 	})
 
 	// 监听
