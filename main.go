@@ -1,8 +1,10 @@
 package main
 
 import (
+	"embed"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"log/slog"
 	"math/rand"
@@ -13,6 +15,9 @@ import (
 	"uno-server/init_uno_data"
 	"uno-server/jsonify"
 )
+
+//go:embed web
+var webAssets embed.FS
 
 // RoomID cardID
 // 108 张牌，需要分配？
@@ -124,7 +129,6 @@ func main() {
 		} else {
 			fmt.Fprintln(w, jsonify.GoodResp(fmt.Sprint(cardsInPlayer)))
 		}
-		fmt.Println(cardsInPlayer)
 	})
 	// Action 路由
 	http.HandleFunc("/action", func(w http.ResponseWriter, r *http.Request) {
@@ -135,12 +139,19 @@ func main() {
 			fmt.Fprintln(w, jsonify.GoodResp(err.Error()))
 			return
 		}
-		err = gamelogic.Logic_main(roomID, player, card)
+		err = gamelogic.Logic_Action_main(roomID, player, card)
 		if err != nil {
-			fmt.Fprintln(w, jsonify.GoodResp(err.Error()))
+			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
 			return
 		}
 	})
+
+	// 前端控制台（静态资源通过 go:embed 打包进二进制）
+	webRoot, err := fs.Sub(webAssets, "web")
+	if err != nil {
+		log.Fatal(err)
+	}
+	http.Handle("/", http.FileServer(http.FS(webRoot)))
 
 	// 监听
 	slog.Info("Ready to listen 8080 port.")

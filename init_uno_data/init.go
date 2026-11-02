@@ -3,11 +3,11 @@ package init_uno_data
 // 初始化房间（发牌）
 import (
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"math/rand"
 	"os"
 	"strconv"
+	"uno-server/gamelogic"
 )
 
 type UNO_Cards struct {
@@ -18,7 +18,7 @@ type UNO_Cards struct {
 	Repo   []int `json:"repo"`
 }
 
-func InitUNO_Mem(roomID int, pep int) {
+func InitUNO_Mem(roomID int, pep int) error {
 	var delivrCard UNO_Cards
 	allCards := []int{
 		// Red 100：25
@@ -61,7 +61,6 @@ func InitUNO_Mem(roomID int, pep int) {
 	rand.Shuffle(len(allCards), func(i, j int) {
 		allCards[i], allCards[j] = allCards[j], allCards[i] // 交换元素
 	})
-	fmt.Println(allCards)
 	slog.Info("[initUNO_Mem] Init Data", "roomID", "roomID")
 	// 每一个玩家获取 7 张牌
 	var CardCounts int
@@ -111,13 +110,37 @@ func InitUNO_Mem(roomID int, pep int) {
 	file, err := os.Create(strconv.Itoa(roomID) + ".json")
 	if err != nil {
 		slog.Error("[init_uno_data/init.go] An error occurred", "error", err)
-		return
+		return err
 	}
-	// 序列化并且写入
+
+	// 从牌库中抽取第一张牌出来
+	var ActionData gamelogic.GameActionData
+	// 初始化 ActionData
+	ActionData.Turn = 1
+	ActionData.ClockWise = true
+	ActionData.Ban = false
+	ActionData.LastCard = delivrCard.Repo[0]
+	delivrCard.Repo = delivrCard.Repo[:1]
+	ActionData.Color = gamelogic.JustifyCardColor(ActionData.LastCard)
+	slog.Debug("LastCard Got", "ID", ActionData.LastCard)
+	// 序列化并且写入数据
 	jsonContent, err := json.Marshal(delivrCard)
 	err = os.WriteFile(strconv.Itoa(roomID)+".json", jsonContent, 0644)
 	if err != nil {
 		slog.Error("An error occurred", "error", err)
+		return err
 	}
-	defer file.Close()
+	// 完成 Action
+	file.Close()
+	jsonContent, err = json.Marshal(ActionData)
+	if err != nil {
+		slog.Error("An error occurred", "error", err)
+		return err
+	}
+	err = os.WriteFile(strconv.Itoa(roomID)+".data.json", jsonContent, 0644)
+	if err != nil {
+		slog.Error("An error occurred", "error", err)
+		return err
+	}
+	return nil
 }

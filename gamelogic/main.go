@@ -9,9 +9,18 @@ import (
 	"strconv"
 )
 
-func Logic_main(roomID int, player int, card int) error {
-	slog.Debug("[gamelogic/main.go] Card Action.", "roomID", roomID, "player", player, "card", card)
-	// 判断牌是否合法
+type GameActionData struct {
+	Ban       bool `json:"ban"`       // ban 为禁止（禁止下一个出牌）
+	PlusTwo   int  `json:"plusTwo"`   // plusTwo 为 +2, 后方要不加二要不叠加给下一个
+	Color     int  `json:"color"`     // 对使用 Wide 时进行记录
+	ClockWise bool `json:"clockWise"` // 方向， true 为顺时针 否则为逆时针
+	Turn      int  `json:"turn"`      // 轮到谁来
+	LastCard  int  `json:"lastCard"`  // 上一张卡
+	PlusFour  int  `json:"plusFour"`  // 王牌叠加 4
+}
+
+func whetherCardsValid_Have(roomID int, player int, card int) error {
+	// 判断牌是否合法拥有
 	allCards := []int{
 		// Red 100：25
 		100,
@@ -108,4 +117,16 @@ func Logic_main(roomID int, player int, card int) error {
 		slog.Info("Card Not Found in player", "roomID", roomID, "player", player, "card", card)
 		return errors.New("Card Not Found in player")
 	}
+}
+
+func Logic_Action_main(roomID int, player int, card int) error {
+	slog.Debug("[gamelogic/main.go] Card Action.", "roomID", roomID, "player", player, "card", card)
+
+	err := whetherCardsValid_Have(roomID, player, card)
+	if err != nil {
+		slog.Error("[gamelogic/main.go] An error occurred", "error", err)
+		return err
+	}
+
+	return nil
 }

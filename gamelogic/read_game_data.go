@@ -2,7 +2,6 @@ package gamelogic
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -23,7 +22,6 @@ func ReadGameData(roomID int) (UNO_Cards, error) {
 		slog.Error("[gamelogic/read_game_data.go] An error occurred", "error", err)
 		return emptyCard, err
 	}
-	fmt.Println(string(data))
 
 	var jsonContent UNO_Cards
 	err = json.Unmarshal(data, &jsonContent)
