@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"os"
 	"strconv"
-	"time"
 )
 
 type UNO_Cards struct {
@@ -19,7 +18,7 @@ type UNO_Cards struct {
 	Repo   []int `json:"repo"`
 }
 
-func InitUNO_Mem(roomID int) {
+func InitUNO_Mem(roomID int, pep int) {
 	var delivrCard UNO_Cards
 	allCards := []int{
 		// Red 100：25
@@ -59,8 +58,6 @@ func InitUNO_Mem(roomID int) {
 		521, 522, 523, 524, // Wild Change Color
 	}
 	// Fxxk the order
-	// This might be an old method
-	rand.Seed(time.Now().UnixNano()) // 初始化随机种子
 	rand.Shuffle(len(allCards), func(i, j int) {
 		allCards[i], allCards[j] = allCards[j], allCards[i] // 交换元素
 	})
@@ -76,15 +73,11 @@ func InitUNO_Mem(roomID int) {
 		if forWhich == 5 {
 			forWhich = 1
 		}
-		if CardCounts == 49 {
-			// 当每个玩家手里都有 7 张牌时，将剩余的全部写入牌库（Repo）
+		if CardCounts == 28 {
+			// 当 4 个玩家手里都有 7 张牌时，将剩余的全部写入牌库（Repo）
 			forWhich = 6
 		}
-		// 牌库视为特殊玩家 6 号
-		if forWhich != 6 {
-			CardCounts++
-		}
-
+		// 分发
 		switch forWhich {
 		case 1:
 			delivrCard.First = append(delivrCard.First, Card)
@@ -97,7 +90,22 @@ func InitUNO_Mem(roomID int) {
 		case 6:
 			delivrCard.Repo = append(delivrCard.Repo, Card)
 		}
+		// 牌库视为特殊玩家 6 号
+		if forWhich != 6 {
+			CardCounts++
+		}
 
+	}
+	// 人数为 2, 3, 4.
+	switch pep {
+	case 2:
+		delivrCard.Repo = append(delivrCard.Repo, delivrCard.Third...)
+		delivrCard.Third = []int{}
+		delivrCard.Repo = append(delivrCard.Repo, delivrCard.Fourth...)
+		delivrCard.Fourth = []int{}
+	case 3:
+		delivrCard.Repo = append(delivrCard.Repo, delivrCard.Fourth...)
+		delivrCard.Fourth = []int{}
 	}
 
 	file, err := os.Create(strconv.Itoa(roomID) + ".json")
@@ -105,7 +113,7 @@ func InitUNO_Mem(roomID int) {
 		slog.Error("[init_uno_data/init.go] An error occurred", "error", err)
 		return
 	}
-
+	// 序列化并且写入
 	jsonContent, err := json.Marshal(delivrCard)
 	err = os.WriteFile(strconv.Itoa(roomID)+".json", jsonContent, 0644)
 	if err != nil {

@@ -10,8 +10,8 @@ import (
 	"os"
 	"strconv"
 	"uno-server/gamelogic"
-	"uno-server/grateful_error"
 	"uno-server/init_uno_data"
+	"uno-server/jsonify"
 )
 
 // RoomID cardID
@@ -47,11 +47,11 @@ b.若质疑失败，即打出+4的玩家没有违规使用+4，则被加牌玩�
 
 罚两张（Draw 2）： N23 N33
 
-王牌（+4 & Wild）：511-514
+王牌 king（+4 & Wild）：511-514
 
 Wild（Change Color）：521-524
 */
-
+// 指定人数（创建房间时有问题）
 type API_UnoStru struct {
 	RoomID int `json:"roomID"`
 	Cardid int `json:"cardID"`
@@ -83,9 +83,20 @@ func main() {
 
 	http.HandleFunc("/newRoom", func(w http.ResponseWriter, r *http.Request) {
 		API_UNO_POST_Data.RoomID = rand.Intn(1000)
-		init_uno_data.InitUNO_Mem(API_UNO_POST_Data.RoomID)
+		pep, err := strconv.Atoi(r.URL.Query().Get("pep"))
+		if err != nil {
+			slog.Error("[main.go] An error occurred", "error", err)
+			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
+			return
+		}
+		if pep < 2 || pep > 4 {
+			fmt.Fprintln(w, jsonify.Grateful_Error("Invalid Player Number"))
+			return
+		}
+
+		init_uno_data.InitUNO_Mem(API_UNO_POST_Data.RoomID, pep)
 		slog.Info("New room generated", "RoomID", API_UNO_POST_Data.RoomID)
-		fmt.Fprintln(w, API_UNO_POST_Data.RoomID)
+		fmt.Fprintln(w, jsonify.GoodResp(fmt.Sprint(API_UNO_POST_Data.RoomID)))
 	})
 
 	http.HandleFunc("/fetchPlayerCards", func(w http.ResponseWriter, r *http.Request) {
@@ -93,26 +104,26 @@ func main() {
 		intRoomID, err := strconv.Atoi(r.URL.Query().Get("roomID"))
 		if err != nil {
 			slog.Error("[main.go] An error occurred", "error", err)
-			fmt.Fprintln(w, grateful_error.Grateful_Error(err.Error()))
+			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
 			return
 		}
 		intPlayerID, err := strconv.Atoi(r.URL.Query().Get("playerID"))
 		if err != nil {
 			slog.Error("[main.go] An error occurred", "error", err)
-			fmt.Fprintln(w, grateful_error.Grateful_Error(err.Error()))
+			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
 			return
 		}
 		// 判断玩家 ID
 		if intPlayerID > 4 || intPlayerID < 1 {
 			slog.Info("Incorrect Player ID")
-			fmt.Fprint(w, grateful_error.Grateful_Error("Incorrect Player ID"))
+			fmt.Fprint(w, jsonify.Grateful_Error("Incorrect Player ID"))
 			return
 		}
 		cardsInPlayer, err := gamelogic.Player_Get_Their_Card(intRoomID, intPlayerID)
 		if err != nil {
-			fmt.Fprintln(w, grateful_error.Grateful_Error(err.Error()))
+			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
 		} else {
-			fmt.Fprintln(w, cardsInPlayer)
+			fmt.Fprintln(w, jsonify.GoodResp(fmt.Sprint(cardsInPlayer)))
 		}
 		fmt.Println(cardsInPlayer)
 	})

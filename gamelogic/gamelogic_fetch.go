@@ -1,12 +1,7 @@
 package gamelogic
 
 import (
-	"encoding/json"
-	"fmt"
-	"io"
 	"log/slog"
-	"os"
-	"strconv"
 )
 
 type UNO_Cards struct {
@@ -19,35 +14,20 @@ type UNO_Cards struct {
 
 func Player_Get_Their_Card(roomID int, player int) ([]int, error) {
 	slog.Debug("[gamelogic/gamelogic_fetch.go] Ready to read a game file", "file", roomID, "player", player)
-	file, err := os.Open(strconv.Itoa(roomID) + ".json")
+	gameData, err := ReadGameData(roomID)
 	if err != nil {
-		slog.Error("[gamelogic/fetch.go] An error occurred", "error", err)
+		slog.Error("[gamelogic/read_game_data.go] An error occurred", "error", err)
 		return []int{}, err
 	}
-	defer file.Close()
-	data, err := io.ReadAll(file)
-	if err != nil {
-		slog.Error("[gamelogic/fetch.go] An error occurred", "error", err)
-		return []int{}, err
-	}
-	fmt.Println(string(data))
-
-	var jsonContent UNO_Cards
-	err = json.Unmarshal(data, &jsonContent)
-	if err != nil {
-		slog.Error("[gamelogic/fetch.go] An error occurred", "error", err)
-		return []int{}, err
-	}
-	fmt.Println(jsonContent)
 	switch player {
 	case 1:
-		return jsonContent.First, nil
+		return gameData.First, nil
 	case 2:
-		return jsonContent.Sec, nil
+		return gameData.Sec, nil
 	case 3:
-		return jsonContent.Third, nil
+		return gameData.Third, nil
 	case 4:
-		return jsonContent.Fourth, nil
+		return gameData.Fourth, nil
 	}
 	return []int{}, nil
 }
