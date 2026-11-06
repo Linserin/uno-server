@@ -19,8 +19,20 @@ type GameActionData struct {
 	PlusFour  int  `json:"plusFour"`  // 王牌叠加 4
 }
 
+// 从切片里删除第一个等于 card 的元素，返回新切片和是否找到
+func removeCardFromHand(cards []int, card int) ([]int, bool) {
+	for i, c := range cards {
+		if c == card {
+			// append 会就地覆盖，返回的新切片长度 -1
+			return append(cards[:i], cards[i+1:]...), true
+		}
+	}
+	return cards, false
+}
+
+// 判断牌是否合法拥有
 func whetherCardsValid_Have(roomID int, player int, card int) error {
-	// 判断牌是否合法拥有
+
 	allCards := []int{
 		// Red 100：25
 		100,
@@ -121,12 +133,91 @@ func whetherCardsValid_Have(roomID int, player int, card int) error {
 
 func Logic_Action_main(roomID int, player int, card int) error {
 	slog.Debug("[gamelogic/main.go] Card Action.", "roomID", roomID, "player", player, "card", card)
-
+	if card == 0 {
+		return errors.New("card cannot be 0")
+	}
 	err := whetherCardsValid_Have(roomID, player, card)
 	if err != nil {
 		slog.Error("[gamelogic/main.go] An error occurred", "error", err)
 		return err
 	}
-
+	err = nil
+	actionData, err := ReadGameActionData(roomID)
+	if err != nil {
+		slog.Error("[gamelogic/main.go] An error occurred", "error", err)
+		return err
+	}
+	slog.Info("开始进行判断")
+	isCardLegal := compare(card, actionData.LastCard)
+	slog.Info("Card", "isLegal", isCardLegal)
+	if !isCardLegal {
+		slog.Error("[gamelogic/main.go] An error occurred", "error", errors.New("Card Not Legal"))
+		return errors.New("Card Not Legal")
+	}
+	gameData, err := ReadGameData(roomID)
+	if err != nil {
+		slog.Error("[gamelogic/main.go] An error occurred", "error", err)
+		return err
+	}
+	gameActionData, err := ReadGameActionData(roomID)
+	// 加一轮
+	gameActionData.Turn += 1
+	if gameActionData.Turn == 5 {
+		gameActionData.Turn = 1
+	}
+	// 如果是 Skip 直接加一轮
+	if card%100 == 21 || card%100 == 31 {
+		gameActionData.Turn += 1
+	}
+	var done bool
+	// 移除玩家的对应牌
+	switch player {
+	case 1:
+		for _, cardsInPlayer := range gameData.First {
+			if card == cardsInPlayer {
+				// 移除卡牌的逻辑
+				gameData.First, done = removeCardFromHand(gameData.First, card)
+			}
+		}
+	case 2:
+		for _, cardsInPlayer := range gameData.Sec {
+			if card == cardsInPlayer {
+				gameData.Sec, done = removeCardFromHand(gameData.Sec, card)
+			}
+		}
+	case 3:
+		for _, cardsInPlayer := range gameData.Third {
+			if card == cardsInPlayer {
+				gameData.Third, done = removeCardFromHand(gameData.Third, card)
+			}
+		}
+	case 4:
+		for _, cardsInPlayer := range gameData.Fourth {
+			if card == cardsInPlayer {
+				gameData.Fourth, done = removeCardFromHand(gameData.Fourth, card)
+			}
+		}
+	}
+	if !done {
+		slog.Error("[gamelogic/main.go] An error occurred", "error", errors.New("Card Not Found in player"))
+		return errors.New("Card Not Found in player")
+	}
+	if actionData.Turn != player {
+		slog.Error("[gamelogic/main.go] An error occurred", "error", errors.New("Not your turn"))
+		return errors.New("Not your turn")
+	}
+	// 更新 LastCard
+	gameActionData.LastCard = card
+	// 写入数据
+	err = WriteGameData(roomID, gameData)
+	if err != nil {
+		slog.Error("[gamelogic/main.go] An error occurred", "error", err)
+		return err
+	}
+	err = WriteGameActionData(roomID, gameActionData)
+	if err != nil {
+		slog.Error("[gamelogic/main.go] An error occurred", "error", err)
+		return err
+	}
 	return nil
 }

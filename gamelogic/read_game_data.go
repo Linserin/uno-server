@@ -31,3 +31,15 @@ func ReadGameData(roomID int) (UNO_Cards, error) {
 	}
 	return jsonContent, nil
 }
+
+// 读取 Action 数据
+func ReadGameActionData(roomID int) (GameActionData, error) {
+	actionData, err := os.ReadFile(strconv.Itoa(roomID) + ".data.json")
+
+	var structedAction GameActionData
+	if err != nil {
+		return structedAction, err
+	}
+	err = json.Unmarshal(actionData, &structedAction)
+	return structedAction, err
+}

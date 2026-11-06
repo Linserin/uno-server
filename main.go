@@ -76,7 +76,7 @@ func main() {
 	mw := io.MultiWriter(os.Stdout, f) // 一份数据写两处
 
 	logger := slog.New(slog.NewJSONHandler(mw, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+		Level: slog.LevelInfo,
 	}))
 	slog.SetDefault(logger)
 
@@ -129,6 +129,23 @@ func main() {
 		} else {
 			fmt.Fprintln(w, jsonify.GoodResp(fmt.Sprint(cardsInPlayer)))
 		}
+	})
+	// fetchAction & LastCard
+	http.HandleFunc("/fetchAction", func(w http.ResponseWriter, r *http.Request) {
+		intRoomID, err := strconv.Atoi(r.URL.Query().Get("roomID"))
+		slog.Info("Fetching action data", "RoomID", intRoomID)
+		if err != nil {
+			slog.Error("[main.go] An error occurred", "error", err)
+			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
+			return
+		}
+		actionData, err := gamelogic.ReadGameActionData(intRoomID)
+		if err != nil {
+			slog.Error("[main.go] An error occurred", "error", err)
+			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
+			return
+		}
+		fmt.Fprintln(w, jsonify.GoodResp(fmt.Sprint(actionData)))
 	})
 	// Action 路由
 	http.HandleFunc("/action", func(w http.ResponseWriter, r *http.Request) {
