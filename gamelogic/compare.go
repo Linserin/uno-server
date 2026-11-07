@@ -3,6 +3,10 @@ package gamelogic
 import "log/slog"
 
 func compare(thisCard int, lastCard int) bool {
+	if thisCard == 1000 {
+		slog.Info("Player skip, next turn")
+		return true
+	}
 	// 匹配颜色
 	thisColor := JustifyCardColor(thisCard)
 	lastColor := JustifyCardColor(lastCard)

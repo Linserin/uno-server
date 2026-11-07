@@ -21,6 +21,10 @@ type GameActionData struct {
 
 // 从切片里删除第一个等于 card 的元素，返回新切片和是否找到
 func removeCardFromHand(cards []int, card int) ([]int, bool) {
+	// 如果 card 是 1000，表示跳过出牌，直接返回原切片和 true
+	if card == 1000 {
+		return cards, true
+	}
 	for i, c := range cards {
 		if c == card {
 			// append 会就地覆盖，返回的新切片长度 -1
@@ -32,7 +36,10 @@ func removeCardFromHand(cards []int, card int) ([]int, bool) {
 
 // 判断牌是否合法拥有
 func whetherCardsValid_Have(roomID int, player int, card int) error {
-
+	// 如果 card 是 1000，表示跳过出牌，直接返回原切片和 true
+	if card == 1000 {
+		return nil
+	}
 	allCards := []int{
 		// Red 100：25
 		100,
@@ -166,7 +173,12 @@ func Logic_Action_main(roomID int, player int, card int) error {
 		gameActionData.Turn = 1
 	}
 	// 如果是 Skip 直接加一轮
-	if card%100 == 21 || card%100 == 31 {
+	// 忽略 Wild
+	/*
+		511, 512, 513, 514, // +4 & Wild
+		521, 522, 523, 524, // Wild Change Color
+	*/
+	if card%100 == 21 || card%100 == 31 || card%100 != 5 {
 		gameActionData.Turn += 1
 	}
 	var done bool

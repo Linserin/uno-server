@@ -8,7 +8,7 @@ A UNO Game server written in Go
 - `/ping`: 测试服务器
 - `/newRoom`: 创建新房间并发牌（每个玩家发牌 7 张）
 - `/fetchPlayerCards`: 获取指定玩家的牌，使用查询方法
-
+- `/action`: 出牌，出 ID 为 `1000` 的牌则为跳过
 
 
 ## Todo:
@@ -24,7 +24,7 @@ A UNO Game server written in Go
 - 主游戏逻辑 - 禁止（Skip）
 - 主游戏逻辑 - 游戏开始第一张牌不得为 Wild / 王牌
 - 主游戏逻辑 - `/fetchAction` 使用 poll 来获取对局状态 - 已完成
-- 主游戏逻辑 - 过（不出牌跳到下一个）
+
 
 **缺少的功能：**
 1. 数字与颜色匹配逻辑（Wild & 王牌时颜色为 `5` 导致匹配失败）
