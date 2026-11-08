@@ -27,4 +27,8 @@ A UNO Game server written in Go
 
 
 等待完成：
-- 应该是摸牌之后再交由玩家确认是否出摸出的牌或者直接跳过
+- 应该是摸牌 （`/getCardFromRepo`） 之后再交由玩家确认是否出摸出的牌或者直接跳过
+- Wild & +4 选择颜色（查询参数中增加 `choseColor`，`int` 类型，值为 1,2,3,4.）
+- 游戏胜利判定（Action 数据中增加一个 Winner, 为 1,2,3,4。注意牌库为特殊的玩家 ID; 参见下条 Todo）
+- 牌库耗尽后需要从 allCards 复制一个新的切片后删除玩家持有的卡片并洗后作为牌库
+- `getCardFromRepo` 写回数据
