@@ -37,9 +37,9 @@ paths:
       summary: Create a new UNO room and deal cards
       description: |
         Creates a new game room for 2-4 players. Each active player is dealt 7 cards.
-        A random integer in [0, 999] is used as the room ID. The first card of the
-        remaining deck is used as the initial `lastCard`; the current implementation
-        leaves that card in the deck and keeps only it in `repo`.
+        A random integer in [0, 999] is used as the room ID. The first non-Wild card
+        drawn from the remaining deck is used as the initial `lastCard` and is removed
+        from the deck. The number of players is stored in the action data (`players`).
       operationId: newRoom
       parameters:
         - in: query
@@ -118,9 +118,12 @@ paths:
       description: |
         Returns the room's action data as a string produced by Go's `fmt.Sprint`
         on the `GameActionData` struct, in this field order:
-        `{ban plusTwo color clockWise turn lastCard plusFour}`.
-        `color` is only set when the room is created; it is not updated when a
-        card is played.
+        `{ban plusTwo color clockWise turn lastCard plusFour players}`.
+        `color` is the currently active color (1 Red, 2 Yellow, 3 Blue, 4 Green);
+        it is updated when a colored card is played and when a Wild / +4 is played
+        with a `color` argument.
+        `plusTwo` / `plusFour` hold the accumulated draw penalty waiting for the
+        next player to stack or draw.
       operationId: fetchAction
       parameters:
         - in: query
@@ -140,7 +143,7 @@ paths:
               examples:
                 success:
                   summary: Current game action data
-                  value: '{"error":"","status":"ok","resp":"{false 0 2 true 1 223 0}"}'
+                  value: '{"error":"","status":"ok","resp":"{false 0 2 true 1 223 0 2}"}'
                 roomNotFound:
                   summary: Room data file not found
                   value: '{"error":"open 999.data.json: no such file or directory","status":"bad","resp":""}'
@@ -152,16 +155,23 @@ paths:
       summary: Play a card / perform a game action
       description: |
         Validates and processes a card play for the given player in the room.
-        Checks card ownership and legality (color/number/wild match), updates the
-        hand, discard pile, and turn, and applies the Skip turn effect.
+        Checks whose turn it is, card ownership, and legality, then updates the
+        hand, the active color, the accumulated draw penalty, and the turn.
         On success the response is HTTP 200 with an empty body.
 
-        Error handling as currently implemented:
-        - `roomID` and `player` parse errors are silently ignored (the last `Atoi`
-          error, for `card`, wins).
-        - If `card` is missing or non-numeric, the response has status "ok" with
-          the Atoi error text in `resp`.
-        - Other errors are returned as the usual envelope with status "bad".
+        Special card behavior:
+        - `card=1000` means Pass/Skip: no card is played, `lastCard` is unchanged,
+          and the turn advances. If a +2 / +4 penalty is pending, the player draws
+          the accumulated cards and the penalty is cleared.
+        - Skip (`N21` / `N31`) advances the turn by two players.
+        - Reverse (`N22` / `N32`) flips the direction; with two players it acts
+          like Skip.
+        - +2 (`N23` / `N33`) adds 2 to `plusTwo`; the next player must stack a +2
+          of the same active color or Pass (`card=1000`) to draw the penalty.
+        - +4 (`511`-`514`) adds 4 to `plusFour`; the next player must stack another
+          +4 or Pass to draw the penalty.
+        - Wild (`521`-`524`) and +4 set the active color from the optional `color`
+          parameter (or keep the current color if omitted).
       operationId: playAction
       parameters:
         - in: query
@@ -183,7 +193,15 @@ paths:
           required: true
           schema:
             type: integer
-          description: Card ID to play
+          description: Card ID to play, or `1000` to Pass/Skip.
+        - in: query
+          name: color
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 4
+          description: New active color when playing a Wild / +4 (1 Red, 2 Yellow, 3 Blue, 4 Green).
       responses:
         '200':
           description: |
@@ -197,9 +215,15 @@ paths:
                 success:
                   summary: Card played successfully (empty body)
                   value: ''
-                invalidCardParam:
-                  summary: Missing or non-numeric `card`
-                  value: '{"error":"","status":"ok","resp":"strconv.Atoi: parsing \"\": invalid syntax"}'
+                pass:
+                  summary: Pass/Skip processed (empty body)
+                  value: ''
+                invalidParam:
+                  summary: Missing or non-numeric parameter
+                  value: '{"error":"strconv.Atoi: parsing \"\": invalid syntax","status":"bad","resp":""}'
+                invalidColor:
+                  summary: Color outside 1-4
+                  value: '{"error":"Color must be 1-4","status":"bad","resp":""}'
                 cardNotLegal:
                   summary: Card not legal
                   value: '{"error":"Card Not Legal","status":"bad","resp":""}'
@@ -209,6 +233,12 @@ paths:
                 illegalCard:
                   summary: Card ID is not in the deck
                   value: '{"error":"Illegal card ID","status":"bad","resp":""}'
+                mustStackTwo:
+                  summary: A +2 penalty is pending and the card is not a matching +2
+                  value: '{"error":"Must stack +2 or pass","status":"bad","resp":""}'
+                mustStackFour:
+                  summary: A +4 penalty is pending and the card is not a +4
+                  value: '{"error":"Must stack +4 or pass","status":"bad","resp":""}'
                 notYourTurn:
                   summary: Not the player's turn
                   value: '{"error":"Not your turn","status":"bad","resp":""}'
@@ -225,22 +255,22 @@ components:
       properties:
         ban:
           type: boolean
-          description: Initialized to false; currently never updated (Skip is implemented by advancing `turn`).
+          description: Reserved. Initialized to false and not used; Skip is implemented by advancing `turn`.
           example: false
         plusTwo:
           type: integer
-          description: Initialized to 0; currently never updated.
+          description: Accumulated +2 draw penalty. Reset to 0 when the penalized player draws.
           example: 0
         color:
           type: integer
           description: |
-            Color derived from the initial `lastCard` via its hundreds digit:
-            100 -> 0, 1xx -> 1 (Red), 2xx -> 2 (Yellow), 3xx -> 3 (Blue),
-            4xx -> 4 (Green), 5xx -> 5 (Wild). Not updated when cards are played.
+            Currently active color (1 Red, 2 Yellow, 3 Blue, 4 Green).
+            Set from `lastCard` at room creation, updated when a colored card is
+            played, and set by Wild / +4 using the `color` argument.
           example: 1
         clockWise:
           type: boolean
-          description: Initialized to true; currently never updated (Reverse is not implemented).
+          description: Play direction. `true` is clockwise; toggled by Reverse.
           example: true
         turn:
           type: integer
@@ -248,9 +278,13 @@ components:
           example: 1
         lastCard:
           type: integer
-          description: The last played card ID.
+          description: The last played card ID. Pass (`1000`) does not change it.
           example: 105
         plusFour:
           type: integer
-          description: Initialized to 0; currently never updated.
+          description: Accumulated +4 draw penalty. Reset to 0 when the penalized player draws.
           example: 0
+        players:
+          type: integer
+          description: Number of players in the room (2-4).
+          example: 4

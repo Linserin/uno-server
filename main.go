@@ -76,7 +76,7 @@ func main() {
 	mw := io.MultiWriter(os.Stdout, f) // 一份数据写两处
 
 	logger := slog.New(slog.NewJSONHandler(mw, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: slog.LevelDebug,
 	}))
 	slog.SetDefault(logger)
 
@@ -150,13 +150,34 @@ func main() {
 	// Action 路由
 	http.HandleFunc("/action", func(w http.ResponseWriter, r *http.Request) {
 		roomID, err := strconv.Atoi(r.URL.Query().Get("roomID"))
-		player, err := strconv.Atoi(r.URL.Query().Get("player"))
-		card, err := strconv.Atoi(r.URL.Query().Get("card"))
 		if err != nil {
-			fmt.Fprintln(w, jsonify.GoodResp(err.Error()))
+			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
 			return
 		}
-		err = gamelogic.Logic_Action_main(roomID, player, card)
+		player, err := strconv.Atoi(r.URL.Query().Get("player"))
+		if err != nil {
+			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
+			return
+		}
+		card, err := strconv.Atoi(r.URL.Query().Get("card"))
+		if err != nil {
+			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
+			return
+		}
+		// color 为可选参数，仅在使用 Wild / +4 时用于指定新的颜色（1-4）
+		color := 0
+		if colorStr := r.URL.Query().Get("color"); colorStr != "" {
+			color, err = strconv.Atoi(colorStr)
+			if err != nil {
+				fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
+				return
+			}
+			if color < 1 || color > 4 {
+				fmt.Fprintln(w, jsonify.Grateful_Error("Color must be 1-4"))
+				return
+			}
+		}
+		err = gamelogic.Logic_Action_main(roomID, player, card, color)
 		if err != nil {
 			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
 			return

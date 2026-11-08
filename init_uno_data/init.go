@@ -61,7 +61,7 @@ func InitUNO_Mem(roomID int, pep int) error {
 	rand.Shuffle(len(allCards), func(i, j int) {
 		allCards[i], allCards[j] = allCards[j], allCards[i] // 交换元素
 	})
-	slog.Info("[initUNO_Mem] Init Data", "roomID", "roomID")
+	slog.Info("[initUNO_Mem] Init Data", "roomID", roomID, "players", pep, "cards", allCards)
 	// 每一个玩家获取 7 张牌
 	var CardCounts int
 	var forWhich int = 1
@@ -119,8 +119,15 @@ func InitUNO_Mem(roomID int, pep int) error {
 	ActionData.Turn = 1
 	ActionData.ClockWise = true
 	ActionData.Ban = false
-	ActionData.LastCard = delivrCard.Repo[0]
-	delivrCard.Repo = delivrCard.Repo[:1]
+	ActionData.Players = pep
+	// 从牌库抽第一张牌作为起始牌，起始牌不得为 Wild / 王牌
+	for {
+		ActionData.LastCard = delivrCard.Repo[0]
+		delivrCard.Repo = delivrCard.Repo[1:]
+		if !gamelogic.IsWildCard(ActionData.LastCard) {
+			break
+		}
+	}
 	ActionData.Color = gamelogic.JustifyCardColor(ActionData.LastCard)
 	slog.Debug("LastCard Got", "ID", ActionData.LastCard)
 	// 序列化并且写入数据
