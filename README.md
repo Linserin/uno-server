@@ -1,35 +1,7 @@
 # uno-server
 A UNO Game server written in Go
-
-路由：
-- `/`: 前端开发控制台（静态资源通过 `go:embed` 打包）
-- `/ping`: 测试服务器
-- `/newRoom`: 创建新房间并发牌（每个玩家发牌 7 张）
-- `/fetchPlayerCards`: 获取指定玩家的牌
-- `/fetchAction`: 获取当前对局状态
-- `/getCardFromRepo`: 从牌库摸一张牌（写回手牌），之后可出摸到的牌或跳过
-- `/action`: 出牌；`card=1000` 时本回合先摸一张牌（返回摸到的牌、回合不变），再次 `1000` 则跳过并轮到下一位。使用 Wild / +4 时通过 `choseColor=1-4` 指定新颜色
-
-响应统一为 JSON，`Content-Type: application/json; charset=utf-8`，并使用对应的 HTTP 状态码：
-- `200` 成功
-- `400` 参数 / 出牌逻辑错误
-- `404` 房间不存在
-- `409` 游戏已结束（已产生 Winner）
-
-
-## Todo:
-
-已完成：
-- 验证玩家已经拥有牌
-- `/fetchAction` 使用 poll 来获取对局状态
-- 摸牌流程：`/getCardFromRepo` 摸牌并写回手牌，再由玩家决定出牌或跳过
-- 主游戏逻辑 - 数字 & 颜色（Wild / 王牌使用 `color` 字段作为当前生效颜色）
-- 主游戏逻辑 - 反转（同色 / 上一张同为反转，两人对战时等同禁止）
-- 主游戏逻辑 - +2（可跨颜色叠加，不能与 +4 互相叠加）
-- 主游戏逻辑 - +4（叠加）
-- 主游戏逻辑 - 禁止（Skip）
-- 主游戏逻辑 - 游戏开始第一张牌不得为 Wild / 王牌
-- 主游戏逻辑 - 胜利判定（`winner` 字段，1-4；牌库为特殊玩家 ID `6`，不计入胜者）
-- 主游戏逻辑 - 牌库耗尽后从完整牌组复制、移除玩家手牌和桌面牌、洗牌后重建牌库
-- 跳过（`card=1000`）：第一次摸一张牌、仍由当前玩家决定出牌或再次跳过；第二次跳过才移动回合。有 +2 / +4 罚牌时摸牌并结束回合
-- 成功 / 失败响应统一为 JSON 并设置 `application/json` 与 HTTP 状态码
+## Docs
+[Documents](https://yet-another-uno-game-server.documentationai.com/) | [Build this Project](https://yet-another-uno-game-server.documentationai.com/en/overview) | [Game Rules](https://yet-another-uno-game-server.documentationai.com/en/reference/rules)
+## Todo
+- This project is only a server without the Game Panel.
+- Other players can fetch any other player's card in the room
