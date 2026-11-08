@@ -20,43 +20,7 @@ type UNO_Cards struct {
 
 func InitUNO_Mem(roomID int, pep int) error {
 	var delivrCard UNO_Cards
-	allCards := []int{
-		// Red 100：25
-		100,
-		101, 102, 103, 104, 105, 106, 107, 108, 109,
-		111, 112, 113, 114, 115, 116, 117, 118, 119,
-		121, 131, // Skip
-		122, 132, // Reverse
-		123, 133, // Draw 2
-
-		// Yellow 200：25
-		200,
-		201, 202, 203, 204, 205, 206, 207, 208, 209,
-		211, 212, 213, 214, 215, 216, 217, 218, 219,
-		221, 231, // Skip
-		222, 232, // Reverse
-		223, 233, // Draw 2
-
-		// Blue 300：25
-		300,
-		301, 302, 303, 304, 305, 306, 307, 308, 309,
-		311, 312, 313, 314, 315, 316, 317, 318, 319,
-		321, 331, // Skip
-		322, 332, // Reverse
-		323, 333, // Draw 2
-
-		// Green 400：25
-		400,
-		401, 402, 403, 404, 405, 406, 407, 408, 409,
-		411, 412, 413, 414, 415, 416, 417, 418, 419,
-		421, 431, // Skip
-		422, 432, // Reverse
-		423, 433, // Draw 2
-
-		// Other Cards
-		511, 512, 513, 514, // +4 & Wild
-		521, 522, 523, 524, // Wild Change Color
-	}
+	allCards := gamelogic.AllCards()
 	// Fxxk the order
 	rand.Shuffle(len(allCards), func(i, j int) {
 		allCards[i], allCards[j] = allCards[j], allCards[i] // 交换元素
@@ -120,6 +84,7 @@ func InitUNO_Mem(roomID int, pep int) error {
 	ActionData.ClockWise = true
 	ActionData.Ban = false
 	ActionData.Players = pep
+	ActionData.Winner = 0
 	// 从牌库抽第一张牌作为起始牌，起始牌不得为 Wild / 王牌
 	for {
 		ActionData.LastCard = delivrCard.Repo[0]

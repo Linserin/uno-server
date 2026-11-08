@@ -82,7 +82,7 @@ func main() {
 
 	slog.Info("Hello, UNO Server!!!")
 	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "pong")
+		jsonify.WriteOK(w, "pong")
 	})
 
 	http.HandleFunc("/newRoom", func(w http.ResponseWriter, r *http.Request) {
@@ -90,17 +90,22 @@ func main() {
 		pep, err := strconv.Atoi(r.URL.Query().Get("pep"))
 		if err != nil {
 			slog.Error("[main.go] An error occurred", "error", err)
-			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
+			jsonify.WriteError(w, err)
 			return
 		}
 		if pep < 2 || pep > 4 {
-			fmt.Fprintln(w, jsonify.Grateful_Error("Invalid Player Number"))
+			jsonify.WriteErrorMessage(w, http.StatusBadRequest, "Invalid Player Number")
 			return
 		}
 
-		init_uno_data.InitUNO_Mem(API_UNO_POST_Data.RoomID, pep)
+		err = init_uno_data.InitUNO_Mem(API_UNO_POST_Data.RoomID, pep)
+		if err != nil {
+			slog.Error("[main.go] An error occurred", "error", err)
+			jsonify.WriteError(w, err)
+			return
+		}
 		slog.Info("New room generated", "RoomID", API_UNO_POST_Data.RoomID)
-		fmt.Fprintln(w, jsonify.GoodResp(fmt.Sprint(API_UNO_POST_Data.RoomID)))
+		jsonify.WriteOK(w, fmt.Sprint(API_UNO_POST_Data.RoomID))
 	})
 
 	http.HandleFunc("/fetchPlayerCards", func(w http.ResponseWriter, r *http.Request) {
@@ -108,27 +113,27 @@ func main() {
 		intRoomID, err := strconv.Atoi(r.URL.Query().Get("roomID"))
 		if err != nil {
 			slog.Error("[main.go] An error occurred", "error", err)
-			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
+			jsonify.WriteError(w, err)
 			return
 		}
 		intPlayerID, err := strconv.Atoi(r.URL.Query().Get("playerID"))
 		if err != nil {
 			slog.Error("[main.go] An error occurred", "error", err)
-			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
+			jsonify.WriteError(w, err)
 			return
 		}
 		// 判断玩家 ID
 		if intPlayerID > 4 || intPlayerID < 1 {
 			slog.Info("Incorrect Player ID")
-			fmt.Fprint(w, jsonify.Grateful_Error("Incorrect Player ID"))
+			jsonify.WriteErrorMessage(w, http.StatusBadRequest, "Incorrect Player ID")
 			return
 		}
 		cardsInPlayer, err := gamelogic.Player_Get_Their_Card(intRoomID, intPlayerID)
 		if err != nil {
-			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
-		} else {
-			fmt.Fprintln(w, jsonify.GoodResp(fmt.Sprint(cardsInPlayer)))
+			jsonify.WriteError(w, err)
+			return
 		}
+		jsonify.WriteOK(w, fmt.Sprint(cardsInPlayer))
 	})
 	// fetchAction & LastCard
 	http.HandleFunc("/fetchAction", func(w http.ResponseWriter, r *http.Request) {
@@ -136,52 +141,72 @@ func main() {
 		slog.Info("Fetching action data", "RoomID", intRoomID)
 		if err != nil {
 			slog.Error("[main.go] An error occurred", "error", err)
-			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
+			jsonify.WriteError(w, err)
 			return
 		}
 		actionData, err := gamelogic.ReadGameActionData(intRoomID)
 		if err != nil {
 			slog.Error("[main.go] An error occurred", "error", err)
-			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
+			jsonify.WriteError(w, err)
 			return
 		}
-		fmt.Fprintln(w, jsonify.GoodResp(fmt.Sprint(actionData)))
+		jsonify.WriteOK(w, fmt.Sprint(actionData))
+	})
+	// 摸牌路由：摸一张牌后由玩家决定出牌或跳过
+	http.HandleFunc("/getCardFromRepo", func(w http.ResponseWriter, r *http.Request) {
+		roomID, err := strconv.Atoi(r.URL.Query().Get("roomID"))
+		if err != nil {
+			jsonify.WriteError(w, err)
+			return
+		}
+		player, err := strconv.Atoi(r.URL.Query().Get("player"))
+		if err != nil {
+			jsonify.WriteError(w, err)
+			return
+		}
+		card, err := gamelogic.DrawCardFromRepo(roomID, player)
+		if err != nil {
+			jsonify.WriteError(w, err)
+			return
+		}
+		jsonify.WriteOK(w, strconv.Itoa(card))
 	})
 	// Action 路由
 	http.HandleFunc("/action", func(w http.ResponseWriter, r *http.Request) {
 		roomID, err := strconv.Atoi(r.URL.Query().Get("roomID"))
 		if err != nil {
-			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
+			jsonify.WriteError(w, err)
 			return
 		}
 		player, err := strconv.Atoi(r.URL.Query().Get("player"))
 		if err != nil {
-			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
+			jsonify.WriteError(w, err)
 			return
 		}
 		card, err := strconv.Atoi(r.URL.Query().Get("card"))
 		if err != nil {
-			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
+			jsonify.WriteError(w, err)
 			return
 		}
-		// color 为可选参数，仅在使用 Wild / +4 时用于指定新的颜色（1-4）
-		color := 0
-		if colorStr := r.URL.Query().Get("color"); colorStr != "" {
-			color, err = strconv.Atoi(colorStr)
+		// choseColor 为可选参数，仅在使用 Wild / +4 时用于指定新的颜色（1-4）
+		choseColor := 0
+		if colorStr := r.URL.Query().Get("choseColor"); colorStr != "" {
+			choseColor, err = strconv.Atoi(colorStr)
 			if err != nil {
-				fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
+				jsonify.WriteError(w, err)
 				return
 			}
-			if color < 1 || color > 4 {
-				fmt.Fprintln(w, jsonify.Grateful_Error("Color must be 1-4"))
+			if choseColor < 1 || choseColor > 4 {
+				jsonify.WriteErrorMessage(w, http.StatusBadRequest, "choseColor must be 1-4")
 				return
 			}
 		}
-		err = gamelogic.Logic_Action_main(roomID, player, card, color)
+		err = gamelogic.Logic_Action_main(roomID, player, card, choseColor)
 		if err != nil {
-			fmt.Fprintln(w, jsonify.Grateful_Error(err.Error()))
+			jsonify.WriteError(w, err)
 			return
 		}
+		jsonify.WriteOK(w, "")
 	})
 
 	// 前端控制台（静态资源通过 go:embed 打包进二进制）

@@ -26,18 +26,27 @@ func IsPlusFour(card int) bool {
 
 // 是否为禁止牌（Skip）
 func IsSkipCard(card int) bool {
+	if IsWildCard(card) {
+		return false
+	}
 	lastTwo := card % 100
 	return lastTwo == 21 || lastTwo == 31
 }
 
 // 是否为反转牌（Reverse）
 func IsReverseCard(card int) bool {
+	if IsWildCard(card) {
+		return false
+	}
 	lastTwo := card % 100
 	return lastTwo == 22 || lastTwo == 32
 }
 
 // 是否为 +2 牌（Draw 2）
 func IsDrawTwoCard(card int) bool {
+	if IsWildCard(card) {
+		return false
+	}
 	lastTwo := card % 100
 	return lastTwo == 23 || lastTwo == 33
 }

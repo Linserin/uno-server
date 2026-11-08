@@ -1,18 +1,27 @@
 openapi: 3.0.3
 info:
   title: UNO Game Server API
-  version: 1.0.0
+  version: 1.1.0
   description: |
-    A UNO card game server written in Go. Manages rooms, player hands, and game actions.
-    Game state is persisted as JSON files per room (`<roomID>.json` for cards, `<roomID>.data.json` for action state).
+    A UNO card game server written in Go. Manages rooms, player hands, the deck,
+    and game actions. Game state is persisted as JSON files per room
+    (`<roomID>.json` for cards, `<roomID>.data.json` for action state).
 
-    Current behavior:
-    - JSON bodies are written without setting a Content-Type header, so responses
-      are actually served as `text/plain; charset=utf-8` even though the body is JSON text.
-    - JSON error responses use the envelope:
-      {"error": "<message>", "status": "bad", "resp": ""}
-    - HTTP status is 200 even on errors.
-    - `/action` returns an empty body on success.
+    Responses:
+    - Every API endpoint returns the unified JSON envelope
+      `{"error": "", "status": "ok", "resp": "..."}` on success or
+      `{"error": "<message>", "status": "bad", "resp": ""}` on failure.
+    - `Content-Type` is always `application/json; charset=utf-8`.
+    - HTTP status codes are meaningful:
+      `200` success, `400` invalid parameters / illegal action,
+      `404` room not found, `409` game already over (a `winner` exists).
+
+    Card ID format:
+    - Colors: 1xx Red, 2xx Yellow, 3xx Blue, 4xx Green, 5xx Wild/+4.
+    - `N00` is 0, `N01`-`N09` / `N11`-`N19` are 1-9.
+    - Skip: `N21` / `N31`; Reverse: `N22` / `N32`; Draw 2: `N23` / `N33`.
+    - +4: `511`-`514`; Wild: `521`-`524`.
+    - `1000` is a virtual Pass/Skip card.
 servers:
   - url: http://localhost:8080
     description: Local development server
@@ -20,26 +29,27 @@ paths:
   /ping:
     get:
       summary: Health check
-      description: Returns "pong" followed by a newline.
+      description: Returns `pong` in the unified JSON envelope.
       operationId: ping
       responses:
         '200':
           description: Server is running
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
-              examples:
-                pong:
-                  value: "pong\n"
+                $ref: '#/components/schemas/Response'
+              example:
+                error: ''
+                status: ok
+                resp: pong
   /newRoom:
     get:
       summary: Create a new UNO room and deal cards
       description: |
         Creates a new game room for 2-4 players. Each active player is dealt 7 cards.
         A random integer in [0, 999] is used as the room ID. The first non-Wild card
-        drawn from the remaining deck is used as the initial `lastCard` and is removed
-        from the deck. The number of players is stored in the action data (`players`).
+        drawn from the remaining deck becomes the initial `lastCard` and is removed
+        from the deck. The player count is stored in the action data (`players`).
       operationId: newRoom
       parameters:
         - in: query
@@ -52,23 +62,32 @@ paths:
           description: Number of players
       responses:
         '200':
-          description: |
-            Room created, player number invalid, or `pep` missing/non-numeric.
+          description: Room created successfully; `resp` is the new room ID.
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
-                description: JSON text.
+                $ref: '#/components/schemas/Response'
+              example:
+                error: ''
+                status: ok
+                resp: '405'
+        '400':
+          description: Invalid or missing `pep`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
               examples:
-                created:
-                  summary: Room created successfully (`resp` is the new room ID)
-                  value: '{"error":"","status":"ok","resp":"405"}'
                 invalidPlayer:
-                  summary: Invalid player number
-                  value: '{"error":"Invalid Player Number","status":"bad","resp":""}'
+                  value:
+                    error: Invalid Player Number
+                    status: bad
+                    resp: ''
                 invalidParam:
-                  summary: Missing or non-numeric `pep`
-                  value: '{"error":"strconv.Atoi: parsing \"\": invalid syntax","status":"bad","resp":""}'
+                  value:
+                    error: 'strconv.Atoi: parsing "": invalid syntax'
+                    status: bad
+                    resp: ''
   /fetchPlayerCards:
     get:
       summary: Get a player's cards
@@ -93,37 +112,53 @@ paths:
           description: Player ID (1-4)
       responses:
         '200':
-          description: Player's cards returned, player ID invalid, or the room file could not be read.
+          description: Player's cards returned.
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
-                description: JSON text.
+                $ref: '#/components/schemas/Response'
+              example:
+                error: ''
+                status: ok
+                resp: '[202 303 405 407 103 111 400]'
+        '400':
+          description: Invalid player ID or missing/non-numeric parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
               examples:
-                success:
-                  summary: Player cards returned
-                  value: '{"error":"","status":"ok","resp":"[202 303 405 407 103 111 400]"}'
                 invalidPlayer:
-                  summary: Incorrect player ID
-                  value: '{"error":"Incorrect Player ID","status":"bad","resp":""}'
-                roomNotFound:
-                  summary: Room file not found
-                  value: '{"error":"open 999.json: no such file or directory","status":"bad","resp":""}'
+                  value:
+                    error: Incorrect Player ID
+                    status: bad
+                    resp: ''
                 invalidParam:
-                  summary: Missing or non-numeric parameter
-                  value: '{"error":"strconv.Atoi: parsing \"\": invalid syntax","status":"bad","resp":""}'
+                  value:
+                    error: 'strconv.Atoi: parsing "": invalid syntax'
+                    status: bad
+                    resp: ''
+        '404':
+          description: Room file not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+              example:
+                error: 'open 999.json: no such file or directory'
+                status: bad
+                resp: ''
   /fetchAction:
     get:
       summary: Get current game action state
       description: |
         Returns the room's action data as a string produced by Go's `fmt.Sprint`
         on the `GameActionData` struct, in this field order:
-        `{ban plusTwo color clockWise turn lastCard plusFour players}`.
-        `color` is the currently active color (1 Red, 2 Yellow, 3 Blue, 4 Green);
-        it is updated when a colored card is played and when a Wild / +4 is played
-        with a `color` argument.
-        `plusTwo` / `plusFour` hold the accumulated draw penalty waiting for the
-        next player to stack or draw.
+        `{ban plusTwo color clockWise turn lastCard plusFour players winner}`.
+
+        - `color` is the currently active color (1 Red, 2 Yellow, 3 Blue, 4 Green).
+        - `plusTwo` / `plusFour` hold the accumulated draw penalty.
+        - `winner` is 1-4 once a player has emptied their hand, otherwise 0.
       operationId: fetchAction
       parameters:
         - in: query
@@ -134,30 +169,123 @@ paths:
           description: Room ID
       responses:
         '200':
-          description: Game action data returned, or the room data file was not found.
+          description: Game action data returned.
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
-                description: JSON text; on success `resp` contains the `fmt.Sprint` rendering of the action data.
+                $ref: '#/components/schemas/Response'
+              example:
+                error: ''
+                status: ok
+                resp: '{false 0 2 true 1 223 0 2 0}'
+        '400':
+          description: Missing or non-numeric `roomID`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+              example:
+                error: 'strconv.Atoi: parsing "": invalid syntax'
+                status: bad
+                resp: ''
+        '404':
+          description: Room data file not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+              example:
+                error: 'open 999.data.json: no such file or directory'
+                status: bad
+                resp: ''
+  /getCardFromRepo:
+    get:
+      summary: Draw a card from the deck
+      description: |
+        Draws one card from the room's deck, appends it to the player's hand, and
+        writes the updated state back to disk. The player may then play the drawn
+        card with `/action` or Pass with `card=1000`.
+
+        Requires that it is the player's turn, that the game is not over, and that
+        no `+2` / `+4` penalty is pending (the player must stack or pass instead).
+        If the deck is empty, it is rebuilt from the full card set by removing all
+        cards currently held by players and the current `lastCard`, then shuffled.
+      operationId: getCardFromRepo
+      parameters:
+        - in: query
+          name: roomID
+          required: true
+          schema:
+            type: integer
+          description: Room ID
+        - in: query
+          name: player
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 4
+          description: Player ID (1-4)
+      responses:
+        '200':
+          description: Card drawn; `resp` is the drawn card ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+              example:
+                error: ''
+                status: ok
+                resp: '201'
+        '400':
+          description: Invalid parameters, not the player's turn, or a penalty is pending.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
               examples:
-                success:
-                  summary: Current game action data
-                  value: '{"error":"","status":"ok","resp":"{false 0 2 true 1 223 0 2}"}'
-                roomNotFound:
-                  summary: Room data file not found
-                  value: '{"error":"open 999.data.json: no such file or directory","status":"bad","resp":""}'
+                notYourTurn:
+                  value:
+                    error: Not your turn
+                    status: bad
+                    resp: ''
+                penaltyPending:
+                  value:
+                    error: Must stack or pass
+                    status: bad
+                    resp: ''
                 invalidParam:
-                  summary: Missing or non-numeric `roomID`
-                  value: '{"error":"strconv.Atoi: parsing \"\": invalid syntax","status":"bad","resp":""}'
+                  value:
+                    error: 'strconv.Atoi: parsing "": invalid syntax'
+                    status: bad
+                    resp: ''
+        '404':
+          description: Room file not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+              example:
+                error: 'open 999.json: no such file or directory'
+                status: bad
+                resp: ''
+        '409':
+          description: Game already has a winner.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+              example:
+                error: Game Over
+                status: bad
+                resp: ''
   /action:
     get:
-      summary: Play a card / perform a game action
+      summary: Play a card / pass
       description: |
-        Validates and processes a card play for the given player in the room.
-        Checks whose turn it is, card ownership, and legality, then updates the
-        hand, the active color, the accumulated draw penalty, and the turn.
-        On success the response is HTTP 200 with an empty body.
+        Validates and processes a card play for the given player. Checks whose turn
+        it is, card ownership, and legality, then updates the hand, active color,
+        draw penalty, turn, and winner. On success the envelope has an empty `resp`.
 
         Special card behavior:
         - `card=1000` means Pass/Skip: no card is played, `lastCard` is unchanged,
@@ -166,12 +294,15 @@ paths:
         - Skip (`N21` / `N31`) advances the turn by two players.
         - Reverse (`N22` / `N32`) flips the direction; with two players it acts
           like Skip.
-        - +2 (`N23` / `N33`) adds 2 to `plusTwo`; the next player must stack a +2
-          of the same active color or Pass (`card=1000`) to draw the penalty.
-        - +4 (`511`-`514`) adds 4 to `plusFour`; the next player must stack another
+        - +2 (`N23` / `N33`) adds 2 to `plusTwo`. The next player must stack any
+          +2 (color does not matter) or Pass to draw the penalty. +2 and +4 cannot
+          stack on each other.
+        - +4 (`511`-`514`) adds 4 to `plusFour`. The next player must stack another
           +4 or Pass to draw the penalty.
-        - Wild (`521`-`524`) and +4 set the active color from the optional `color`
-          parameter (or keep the current color if omitted).
+        - Wild (`521`-`524`) and +4 set the active color from `choseColor`
+          (or keep the current color if omitted).
+        - When a player empties their hand, `winner` is set to that player ID and
+          further actions return `409`.
       operationId: playAction
       parameters:
         - in: query
@@ -195,7 +326,7 @@ paths:
             type: integer
           description: Card ID to play, or `1000` to Pass/Skip.
         - in: query
-          name: color
+          name: choseColor
           required: false
           schema:
             type: integer
@@ -204,49 +335,107 @@ paths:
           description: New active color when playing a Wild / +4 (1 Red, 2 Yellow, 3 Blue, 4 Green).
       responses:
         '200':
-          description: |
-            Action processed (empty body) or an error returned as JSON text.
+          description: Action processed successfully.
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
-                description: Empty on success; JSON text on error.
+                $ref: '#/components/schemas/Response'
+              example:
+                error: ''
+                status: ok
+                resp: ''
+        '400':
+          description: Invalid parameters or illegal action.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
               examples:
-                success:
-                  summary: Card played successfully (empty body)
-                  value: ''
-                pass:
-                  summary: Pass/Skip processed (empty body)
-                  value: ''
                 invalidParam:
-                  summary: Missing or non-numeric parameter
-                  value: '{"error":"strconv.Atoi: parsing \"\": invalid syntax","status":"bad","resp":""}'
+                  value:
+                    error: 'strconv.Atoi: parsing "": invalid syntax'
+                    status: bad
+                    resp: ''
                 invalidColor:
-                  summary: Color outside 1-4
-                  value: '{"error":"Color must be 1-4","status":"bad","resp":""}'
+                  value:
+                    error: choseColor must be 1-4
+                    status: bad
+                    resp: ''
                 cardNotLegal:
-                  summary: Card not legal
-                  value: '{"error":"Card Not Legal","status":"bad","resp":""}'
+                  value:
+                    error: Card Not Legal
+                    status: bad
+                    resp: ''
                 cardNotFoundInPlayer:
-                  summary: Card not found in player
-                  value: '{"error":"Card Not Found in player","status":"bad","resp":""}'
+                  value:
+                    error: Card Not Found in player
+                    status: bad
+                    resp: ''
                 illegalCard:
-                  summary: Card ID is not in the deck
-                  value: '{"error":"Illegal card ID","status":"bad","resp":""}'
+                  value:
+                    error: Illegal card ID
+                    status: bad
+                    resp: ''
                 mustStackTwo:
-                  summary: A +2 penalty is pending and the card is not a matching +2
-                  value: '{"error":"Must stack +2 or pass","status":"bad","resp":""}'
+                  value:
+                    error: Must stack +2 or pass
+                    status: bad
+                    resp: ''
                 mustStackFour:
-                  summary: A +4 penalty is pending and the card is not a +4
-                  value: '{"error":"Must stack +4 or pass","status":"bad","resp":""}'
+                  value:
+                    error: Must stack +4 or pass
+                    status: bad
+                    resp: ''
                 notYourTurn:
-                  summary: Not the player's turn
-                  value: '{"error":"Not your turn","status":"bad","resp":""}'
-                roomNotFound:
-                  summary: Room file not found
-                  value: '{"error":"open 0.json: no such file or directory","status":"bad","resp":""}'
+                  value:
+                    error: Not your turn
+                    status: bad
+                    resp: ''
+        '404':
+          description: Room file not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+              example:
+                error: 'open 0.json: no such file or directory'
+                status: bad
+                resp: ''
+        '409':
+          description: Game already has a winner.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response'
+              example:
+                error: Game Over
+                status: bad
+                resp: ''
 components:
   schemas:
+    Response:
+      type: object
+      description: Unified response envelope returned by every endpoint.
+      required:
+        - error
+        - status
+        - resp
+      properties:
+        error:
+          type: string
+          description: Error message; empty on success.
+          example: ''
+        status:
+          type: string
+          enum:
+            - ok
+            - bad
+          description: Logical result of the request.
+          example: ok
+        resp:
+          type: string
+          description: Payload as a string; empty on error.
+          example: ''
     GameActionData:
       type: object
       description: |
@@ -255,7 +444,7 @@ components:
       properties:
         ban:
           type: boolean
-          description: Reserved. Initialized to false and not used; Skip is implemented by advancing `turn`.
+          description: Reserved. Initialized to false and not used; Skip advances `turn`.
           example: false
         plusTwo:
           type: integer
@@ -266,7 +455,7 @@ components:
           description: |
             Currently active color (1 Red, 2 Yellow, 3 Blue, 4 Green).
             Set from `lastCard` at room creation, updated when a colored card is
-            played, and set by Wild / +4 using the `color` argument.
+            played, and set by Wild / +4 using `choseColor`.
           example: 1
         clockWise:
           type: boolean
@@ -288,3 +477,9 @@ components:
           type: integer
           description: Number of players in the room (2-4).
           example: 4
+        winner:
+          type: integer
+          description: |
+            Winning player ID (1-4), or 0 while the game is running. The deck is a
+            special player ID (6) and is never a winner.
+          example: 0

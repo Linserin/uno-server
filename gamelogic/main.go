@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"math/rand"
 	"os"
 	"strconv"
 )
@@ -18,6 +19,7 @@ type GameActionData struct {
 	LastCard  int  `json:"lastCard"`  // 上一张卡
 	PlusFour  int  `json:"plusFour"`  // 王牌叠加 4
 	Players   int  `json:"players"`   // 游戏人数（2-4）
+	Winner    int  `json:"winner"`    // 获胜玩家（1-4），0 表示游戏进行中
 }
 
 // 从切片里删除第一个等于 card 的元素，返回新切片和是否找到
@@ -37,43 +39,7 @@ func whetherCardsValid_Have(roomID int, player int, card int) error {
 	if card == 1000 {
 		return nil
 	}
-	allCards := []int{
-		// Red 100：25
-		100,
-		101, 102, 103, 104, 105, 106, 107, 108, 109,
-		111, 112, 113, 114, 115, 116, 117, 118, 119,
-		121, 131, // Skip
-		122, 132, // Reverse
-		123, 133, // Draw 2
-
-		// Yellow 200：25
-		200,
-		201, 202, 203, 204, 205, 206, 207, 208, 209,
-		211, 212, 213, 214, 215, 216, 217, 218, 219,
-		221, 231, // Skip
-		222, 232, // Reverse
-		223, 233, // Draw 2
-
-		// Blue 300：25
-		300,
-		301, 302, 303, 304, 305, 306, 307, 308, 309,
-		311, 312, 313, 314, 315, 316, 317, 318, 319,
-		321, 331, // Skip
-		322, 332, // Reverse
-		323, 333, // Draw 2
-
-		// Green 400：25
-		400,
-		401, 402, 403, 404, 405, 406, 407, 408, 409,
-		411, 412, 413, 414, 415, 416, 417, 418, 419,
-		421, 431, // Skip
-		422, 432, // Reverse
-		423, 433, // Draw 2
-
-		// Other Cards
-		511, 512, 513, 514, // +4 & Wild
-		521, 522, 523, 524, // Wild Change Color
-	}
+	allCards := AllCards()
 	isLegally := false
 	for _, cardInRepo := range allCards {
 		if card == cardInRepo {
@@ -167,11 +133,52 @@ func advanceTurn(actionData *GameActionData, steps int) {
 	actionData.Turn = turn
 }
 
-// drawCards 从牌库给指定玩家摸 count 张牌
-func drawCards(gameData *UNO_Cards, player int, count int) {
-	for i := 0; i < count && len(gameData.Repo) > 0; i++ {
-		card := gameData.Repo[0]
-		gameData.Repo = gameData.Repo[1:]
+// refillRepo 牌库耗尽后重建牌库：
+// 复制完整的 allCards，删除所有玩家手中持有的牌和当前桌面上的牌，洗牌后作为新牌库。
+func refillRepo(gameData *UNO_Cards, lastCard int) {
+	unavailable := make(map[int]bool)
+	for _, hand := range [][]int{gameData.First, gameData.Sec, gameData.Third, gameData.Fourth} {
+		for _, card := range hand {
+			unavailable[card] = true
+		}
+	}
+	unavailable[lastCard] = true
+
+	newRepo := make([]int, 0, len(AllCards()))
+	for _, card := range AllCards() {
+		if !unavailable[card] {
+			newRepo = append(newRepo, card)
+		}
+	}
+	rand.Shuffle(len(newRepo), func(i, j int) {
+		newRepo[i], newRepo[j] = newRepo[j], newRepo[i]
+	})
+	gameData.Repo = newRepo
+	slog.Info("Deck refilled", "cards", len(newRepo))
+}
+
+// drawOneCard 从牌库摸一张牌，牌库为空时先重建牌库
+func drawOneCard(gameData *UNO_Cards, lastCard int) (int, error) {
+	if len(gameData.Repo) == 0 {
+		refillRepo(gameData, lastCard)
+	}
+	if len(gameData.Repo) == 0 {
+		return 0, errors.New("No cards left in deck")
+	}
+	card := gameData.Repo[0]
+	gameData.Repo = gameData.Repo[1:]
+	return card, nil
+}
+
+// DrawCards 从牌库给指定玩家摸 count 张牌，返回摸到的牌
+func DrawCards(gameData *UNO_Cards, player int, count int, lastCard int) ([]int, error) {
+	drawn := make([]int, 0, count)
+	for i := 0; i < count; i++ {
+		card, err := drawOneCard(gameData, lastCard)
+		if err != nil {
+			return drawn, err
+		}
+		drawn = append(drawn, card)
 		switch player {
 		case 1:
 			gameData.First = append(gameData.First, card)
@@ -183,6 +190,13 @@ func drawCards(gameData *UNO_Cards, player int, count int) {
 			gameData.Fourth = append(gameData.Fourth, card)
 		}
 	}
+	return drawn, nil
+}
+
+// drawCards 从牌库给指定玩家摸 count 张牌（内部使用）
+func drawCards(gameData *UNO_Cards, player int, count int, lastCard int) error {
+	_, err := DrawCards(gameData, player, count, lastCard)
+	return err
 }
 
 // 移除玩家手中的牌，返回是否成功
@@ -201,8 +215,23 @@ func removeCardFromPlayer(gameData *UNO_Cards, player int, card int) bool {
 	return removed
 }
 
-func Logic_Action_main(roomID int, player int, card int, color int) error {
-	slog.Debug("[gamelogic/main.go] Card Action.", "roomID", roomID, "player", player, "card", card, "color", color)
+// playerHand 返回指定玩家手中的牌
+func playerHand(gameData UNO_Cards, player int) []int {
+	switch player {
+	case 1:
+		return gameData.First
+	case 2:
+		return gameData.Sec
+	case 3:
+		return gameData.Third
+	case 4:
+		return gameData.Fourth
+	}
+	return nil
+}
+
+func Logic_Action_main(roomID int, player int, card int, choseColor int) error {
+	slog.Debug("[gamelogic/main.go] Card Action.", "roomID", roomID, "player", player, "card", card, "choseColor", choseColor)
 	if card == 0 {
 		return errors.New("card cannot be 0")
 	}
@@ -210,6 +239,9 @@ func Logic_Action_main(roomID int, player int, card int, color int) error {
 	if err != nil {
 		slog.Error("[gamelogic/main.go] An error occurred", "error", err)
 		return err
+	}
+	if actionData.Winner != 0 {
+		return errors.New("Game Over")
 	}
 	if actionData.Turn != player {
 		slog.Error("[gamelogic/main.go] An error occurred", "error", errors.New("Not your turn"))
@@ -226,7 +258,11 @@ func Logic_Action_main(roomID int, player int, card int, color int) error {
 				slog.Error("[gamelogic/main.go] An error occurred", "error", err)
 				return err
 			}
-			drawCards(&gameData, player, actionData.PlusTwo+actionData.PlusFour)
+			err = drawCards(&gameData, player, actionData.PlusTwo+actionData.PlusFour, actionData.LastCard)
+			if err != nil {
+				slog.Error("[gamelogic/main.go] An error occurred", "error", err)
+				return err
+			}
 			actionData.PlusTwo = 0
 			actionData.PlusFour = 0
 			if err := WriteGameData(roomID, gameData); err != nil {
@@ -244,8 +280,8 @@ func Logic_Action_main(roomID int, player int, card int, color int) error {
 		return err
 	}
 
-	// 有罚牌待结算时，只能叠加同类罚牌，否则需要用 1000 摸牌跳过
-	if actionData.PlusTwo > 0 && !(IsDrawTwoCard(card) && JustifyCardColor(card) == actionData.Color) {
+	// 有罚牌待结算时：+2 只能叠加 +2（不要求同色），+4 只能叠加 +4。
+	if actionData.PlusTwo > 0 && !IsDrawTwoCard(card) {
 		return errors.New("Must stack +2 or pass")
 	}
 	if actionData.PlusFour > 0 && !IsPlusFour(card) {
@@ -270,13 +306,19 @@ func Logic_Action_main(roomID int, player int, card int, color int) error {
 
 	// 更新当前生效颜色
 	if IsWildCard(card) {
-		if color >= 1 && color <= 4 {
-			actionData.Color = color
+		if choseColor >= 1 && choseColor <= 4 {
+			actionData.Color = choseColor
 		} else if actionData.Color < 1 || actionData.Color > 4 {
 			actionData.Color = 1
 		}
 	} else {
 		actionData.Color = JustifyCardColor(card)
+	}
+
+	// 胜利判定：出完手中所有牌
+	if len(playerHand(gameData, player)) == 0 {
+		actionData.Winner = player
+		slog.Info("Game won", "roomID", roomID, "player", player)
 	}
 
 	// 不同功能牌的逻辑
