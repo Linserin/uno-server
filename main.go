@@ -201,9 +201,14 @@ func main() {
 				return
 			}
 		}
-		err = gamelogic.Logic_Action_main(roomID, player, card, choseColor)
+		drawnCard, err := gamelogic.Logic_Action_main(roomID, player, card, choseColor)
 		if err != nil {
 			jsonify.WriteError(w, err)
+			return
+		}
+		if drawnCard != 0 {
+			// card=1000 的摸牌步骤，返回摸到的牌
+			jsonify.WriteOK(w, strconv.Itoa(drawnCard))
 			return
 		}
 		jsonify.WriteOK(w, "")

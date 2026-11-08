@@ -20,6 +20,7 @@ type GameActionData struct {
 	PlusFour  int  `json:"plusFour"`  // 王牌叠加 4
 	Players   int  `json:"players"`   // 游戏人数（2-4）
 	Winner    int  `json:"winner"`    // 获胜玩家（1-4），0 表示游戏进行中
+	HasDrawn  bool `json:"hasDrawn"`  // 当前玩家本回合是否已经摸过牌
 }
 
 // 从切片里删除第一个等于 card 的元素，返回新切片和是否找到
@@ -113,7 +114,7 @@ func playerCount(actionData GameActionData) int {
 	return 4
 }
 
-// advanceTurn 按当前方向前进 steps 个玩家
+// advanceTurn 按当前方向前进 steps 个玩家，并重置本回合摸牌标记
 func advanceTurn(actionData *GameActionData, steps int) {
 	count := playerCount(*actionData)
 	turn := actionData.Turn
@@ -131,6 +132,7 @@ func advanceTurn(actionData *GameActionData, steps int) {
 		}
 	}
 	actionData.Turn = turn
+	actionData.HasDrawn = false
 }
 
 // refillRepo 牌库耗尽后重建牌库：
@@ -230,78 +232,114 @@ func playerHand(gameData UNO_Cards, player int) []int {
 	return nil
 }
 
-func Logic_Action_main(roomID int, player int, card int, choseColor int) error {
+// Logic_Action_main 处理出牌 / 跳过。
+// 返回值为本回合摸到的牌（仅 card=1000 摸牌时非 0），供 HTTP 层返回给客户端。
+func Logic_Action_main(roomID int, player int, card int, choseColor int) (int, error) {
 	slog.Debug("[gamelogic/main.go] Card Action.", "roomID", roomID, "player", player, "card", card, "choseColor", choseColor)
 	if card == 0 {
-		return errors.New("card cannot be 0")
+		return 0, errors.New("card cannot be 0")
 	}
 	actionData, err := ReadGameActionData(roomID)
 	if err != nil {
 		slog.Error("[gamelogic/main.go] An error occurred", "error", err)
-		return err
+		return 0, err
 	}
 	if actionData.Winner != 0 {
-		return errors.New("Game Over")
+		return 0, errors.New("Game Over")
 	}
 	if actionData.Turn != player {
 		slog.Error("[gamelogic/main.go] An error occurred", "error", errors.New("Not your turn"))
-		return errors.New("Not your turn")
+		return 0, errors.New("Not your turn")
 	}
 
-	// ID 1000 表示跳过（Pass）：不改变 LastCard，只移动回合。
-	// 若当前存在 +2 / +4 罚牌，则摸走对应的牌并结束自己的回合。
+	// ID 1000 表示跳过（Pass）流程：
+	//   1. 本回合还没摸牌 -> 先摸一张牌，回合不前进，玩家可选择出牌或再次 1000；
+	//   2. 本回合已经摸过牌 -> 直接跳过，轮到下一位玩家。
+	// 若当前存在 +2 / +4 罚牌，则摸走对应的牌、清空罚牌并结束自己的回合。
 	if card == 1000 {
-		slog.Info("Player skip, next turn", "roomID", roomID, "player", player)
 		if actionData.PlusTwo > 0 || actionData.PlusFour > 0 {
 			gameData, err := ReadGameData(roomID)
 			if err != nil {
 				slog.Error("[gamelogic/main.go] An error occurred", "error", err)
-				return err
+				return 0, err
 			}
 			err = drawCards(&gameData, player, actionData.PlusTwo+actionData.PlusFour, actionData.LastCard)
 			if err != nil {
 				slog.Error("[gamelogic/main.go] An error occurred", "error", err)
-				return err
+				return 0, err
 			}
 			actionData.PlusTwo = 0
 			actionData.PlusFour = 0
 			if err := WriteGameData(roomID, gameData); err != nil {
 				slog.Error("[gamelogic/main.go] An error occurred", "error", err)
-				return err
+				return 0, err
 			}
+			advanceTurn(&actionData, 1)
+			if err := WriteGameActionData(roomID, actionData); err != nil {
+				slog.Error("[gamelogic/main.go] An error occurred", "error", err)
+				return 0, err
+			}
+			return 0, nil
 		}
+
+		if !actionData.HasDrawn {
+			gameData, err := ReadGameData(roomID)
+			if err != nil {
+				slog.Error("[gamelogic/main.go] An error occurred", "error", err)
+				return 0, err
+			}
+			drawn, err := DrawCards(&gameData, player, 1, actionData.LastCard)
+			if err != nil {
+				slog.Error("[gamelogic/main.go] An error occurred", "error", err)
+				return 0, err
+			}
+			actionData.HasDrawn = true
+			if err := WriteGameData(roomID, gameData); err != nil {
+				slog.Error("[gamelogic/main.go] An error occurred", "error", err)
+				return 0, err
+			}
+			if err := WriteGameActionData(roomID, actionData); err != nil {
+				slog.Error("[gamelogic/main.go] An error occurred", "error", err)
+				return 0, err
+			}
+			slog.Info("Player drew a card and may play or pass", "roomID", roomID, "player", player, "card", drawn[0])
+			return drawn[0], nil
+		}
+
+		// 已经摸过牌，再次 1000 表示结束回合
+		slog.Info("Player skip, next turn", "roomID", roomID, "player", player)
 		advanceTurn(&actionData, 1)
-		return WriteGameActionData(roomID, actionData)
+		return 0, WriteGameActionData(roomID, actionData)
 	}
 
 	err = whetherCardsValid_Have(roomID, player, card)
 	if err != nil {
 		slog.Error("[gamelogic/main.go] An error occurred", "error", err)
-		return err
+		return 0, err
 	}
 
 	// 有罚牌待结算时：+2 只能叠加 +2（不要求同色），+4 只能叠加 +4。
 	if actionData.PlusTwo > 0 && !IsDrawTwoCard(card) {
-		return errors.New("Must stack +2 or pass")
+		return 0, errors.New("Must stack +2 or pass")
 	}
 	if actionData.PlusFour > 0 && !IsPlusFour(card) {
-		return errors.New("Must stack +4 or pass")
+		return 0, errors.New("Must stack +4 or pass")
 	}
 
 	if !compare(actionData.Color, card, actionData.LastCard) {
 		slog.Error("[gamelogic/main.go] An error occurred", "error", errors.New("Card Not Legal"))
-		return errors.New("Card Not Legal")
+		return 0, errors.New("Card Not Legal")
 	}
 
 	gameData, err := ReadGameData(roomID)
 	if err != nil {
 		slog.Error("[gamelogic/main.go] An error occurred", "error", err)
-		return err
+		return 0, err
 	}
 
 	if !removeCardFromPlayer(&gameData, player, card) {
 		slog.Error("[gamelogic/main.go] An error occurred", "error", errors.New("Card Not Found in player"))
-		return errors.New("Card Not Found in player")
+		return 0, errors.New("Card Not Found in player")
 	}
 
 	// 更新当前生效颜色
@@ -352,12 +390,12 @@ func Logic_Action_main(roomID int, player int, card int, choseColor int) error {
 	err = WriteGameData(roomID, gameData)
 	if err != nil {
 		slog.Error("[gamelogic/main.go] An error occurred", "error", err)
-		return err
+		return 0, err
 	}
 	err = WriteGameActionData(roomID, actionData)
 	if err != nil {
 		slog.Error("[gamelogic/main.go] An error occurred", "error", err)
-		return err
+		return 0, err
 	}
-	return nil
+	return 0, nil
 }

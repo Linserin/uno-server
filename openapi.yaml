@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: UNO Game Server API
-  version: 1.1.0
+  version: 1.2.0
   description: |
     A UNO card game server written in Go. Manages rooms, player hands, the deck,
     and game actions. Game state is persisted as JSON files per room
@@ -21,7 +21,8 @@ info:
     - `N00` is 0, `N01`-`N09` / `N11`-`N19` are 1-9.
     - Skip: `N21` / `N31`; Reverse: `N22` / `N32`; Draw 2: `N23` / `N33`.
     - +4: `511`-`514`; Wild: `521`-`524`.
-    - `1000` is a virtual Pass/Skip card.
+    - `1000` is the virtual draw/pass action: the first use draws a card, a
+      second use passes the turn.
 servers:
   - url: http://localhost:8080
     description: Local development server
@@ -154,11 +155,12 @@ paths:
       description: |
         Returns the room's action data as a string produced by Go's `fmt.Sprint`
         on the `GameActionData` struct, in this field order:
-        `{ban plusTwo color clockWise turn lastCard plusFour players winner}`.
+        `{ban plusTwo color clockWise turn lastCard plusFour players winner hasDrawn}`.
 
         - `color` is the currently active color (1 Red, 2 Yellow, 3 Blue, 4 Green).
         - `plusTwo` / `plusFour` hold the accumulated draw penalty.
         - `winner` is 1-4 once a player has emptied their hand, otherwise 0.
+        - `hasDrawn` is true when the current player has already drawn this turn.
       operationId: fetchAction
       parameters:
         - in: query
@@ -177,7 +179,7 @@ paths:
               example:
                 error: ''
                 status: ok
-                resp: '{false 0 2 true 1 223 0 2 0}'
+                resp: '{false 0 2 true 1 223 0 2 0 false}'
         '400':
           description: Missing or non-numeric `roomID`.
           content:
@@ -203,9 +205,11 @@ paths:
       summary: Draw a card from the deck
       description: |
         Draws one card from the room's deck, appends it to the player's hand, and
-        writes the updated state back to disk. The player may then play the drawn
-        card with `/action` or Pass with `card=1000`.
+        writes the updated state back to disk (setting `hasDrawn`). The player may
+        then play the drawn card with `/action`, or Pass with `card=1000`.
 
+        Each player may draw at most once per turn; calling this again before the
+        turn advances returns `Already drew a card this turn`.
         Requires that it is the player's turn, that the game is not over, and that
         no `+2` / `+4` penalty is pending (the player must stack or pass instead).
         If the deck is empty, it is rebuilt from the full card set by removing all
@@ -254,6 +258,11 @@ paths:
                     error: Must stack or pass
                     status: bad
                     resp: ''
+                alreadyDrew:
+                  value:
+                    error: Already drew a card this turn
+                    status: bad
+                    resp: ''
                 invalidParam:
                   value:
                     error: 'strconv.Atoi: parsing "": invalid syntax'
@@ -288,9 +297,12 @@ paths:
         draw penalty, turn, and winner. On success the envelope has an empty `resp`.
 
         Special card behavior:
-        - `card=1000` means Pass/Skip: no card is played, `lastCard` is unchanged,
-          and the turn advances. If a +2 / +4 penalty is pending, the player draws
-          the accumulated cards and the penalty is cleared.
+        - `card=1000` is the draw/pass action. On the first use in a turn the
+          player draws one card (returned in `resp`), the turn does NOT advance,
+          and the player may then play a card or use `1000` again. On the second
+          use the turn advances and `lastCard` is unchanged. If a +2 / +4 penalty
+          is pending, `1000` draws the accumulated penalty cards, clears the
+          penalty, and ends the turn.
         - Skip (`N21` / `N31`) advances the turn by two players.
         - Reverse (`N22` / `N32`) flips the direction; with two players it acts
           like Skip.
@@ -324,7 +336,7 @@ paths:
           required: true
           schema:
             type: integer
-          description: Card ID to play, or `1000` to Pass/Skip.
+          description: Card ID to play, or `1000` to draw/pass.
         - in: query
           name: choseColor
           required: false
@@ -340,10 +352,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Response'
-              example:
-                error: ''
-                status: ok
-                resp: ''
+              examples:
+                played:
+                  summary: Card played or turn passed
+                  value:
+                    error: ''
+                    status: ok
+                    resp: ''
+                drewCard:
+                  summary: First `card=1000` in a turn draws a card
+                  value:
+                    error: ''
+                    status: ok
+                    resp: '101'
         '400':
           description: Invalid parameters or illegal action.
           content:
@@ -483,3 +504,9 @@ components:
             Winning player ID (1-4), or 0 while the game is running. The deck is a
             special player ID (6) and is never a winner.
           example: 0
+        hasDrawn:
+          type: boolean
+          description: |
+            True when the current player has already drawn a card this turn.
+            Reset when the turn advances.
+          example: false

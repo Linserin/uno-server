@@ -1,8 +1,6 @@
 # uno-server
 A UNO Game server written in Go
 
-这是 Linserin 练习 Go 的项目，目前正在完善...
-
 路由：
 - `/`: 前端开发控制台（静态资源通过 `go:embed` 打包）
 - `/ping`: 测试服务器
@@ -10,7 +8,7 @@ A UNO Game server written in Go
 - `/fetchPlayerCards`: 获取指定玩家的牌
 - `/fetchAction`: 获取当前对局状态
 - `/getCardFromRepo`: 从牌库摸一张牌（写回手牌），之后可出摸到的牌或跳过
-- `/action`: 出牌；出 ID 为 `1000` 的牌表示跳过（Pass）。使用 Wild / +4 时通过 `choseColor=1-4` 指定新颜色
+- `/action`: 出牌；`card=1000` 时本回合先摸一张牌（返回摸到的牌、回合不变），再次 `1000` 则跳过并轮到下一位。使用 Wild / +4 时通过 `choseColor=1-4` 指定新颜色
 
 响应统一为 JSON，`Content-Type: application/json; charset=utf-8`，并使用对应的 HTTP 状态码：
 - `200` 成功
@@ -33,5 +31,5 @@ A UNO Game server written in Go
 - 主游戏逻辑 - 游戏开始第一张牌不得为 Wild / 王牌
 - 主游戏逻辑 - 胜利判定（`winner` 字段，1-4；牌库为特殊玩家 ID `6`，不计入胜者）
 - 主游戏逻辑 - 牌库耗尽后从完整牌组复制、移除玩家手牌和桌面牌、洗牌后重建牌库
-- 跳过（`card=1000`）：不改变上一张牌，只移动回合；有 +2 / +4 罚牌时摸牌并结束回合
+- 跳过（`card=1000`）：第一次摸一张牌、仍由当前玩家决定出牌或再次跳过；第二次跳过才移动回合。有 +2 / +4 罚牌时摸牌并结束回合
 - 成功 / 失败响应统一为 JSON 并设置 `application/json` 与 HTTP 状态码

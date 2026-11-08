@@ -22,6 +22,9 @@ func DrawCardFromRepo(roomID int, player int) (int, error) {
 	if actionData.PlusTwo > 0 || actionData.PlusFour > 0 {
 		return 0, errors.New("Must stack or pass")
 	}
+	if actionData.HasDrawn {
+		return 0, errors.New("Already drew a card this turn")
+	}
 
 	gameData, err := ReadGameData(roomID)
 	if err != nil {
@@ -33,7 +36,12 @@ func DrawCardFromRepo(roomID int, player int) (int, error) {
 		slog.Error("[gamelogic/get_card_from_repo.go] An error occurred", "error", err)
 		return 0, err
 	}
+	actionData.HasDrawn = true
 	if err := WriteGameData(roomID, gameData); err != nil {
+		slog.Error("[gamelogic/get_card_from_repo.go] An error occurred", "error", err)
+		return 0, err
+	}
+	if err := WriteGameActionData(roomID, actionData); err != nil {
 		slog.Error("[gamelogic/get_card_from_repo.go] An error occurred", "error", err)
 		return 0, err
 	}
