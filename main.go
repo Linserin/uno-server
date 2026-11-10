@@ -220,10 +220,21 @@ func main() {
 		log.Fatal(err)
 	}
 	http.Handle("/", http.FileServer(http.FS(webRoot)))
-
-	// 监听
-	slog.Info("Ready to listen 8080 port.")
-	err = http.ListenAndServe(":8080", nil)
+	port := ":8080"
+	for i, cmdline := range os.Args {
+		if cmdline == "-p" {
+			i++
+			port = os.Args[i]
+			port = ":" + port
+			break
+		}
+		if cmdline == "-h" || cmdline == "--help" {
+			fmt.Println("Usage: [-p port(int)]")
+			return
+		}
+	}
+	slog.Info("UNO Server Started", "port", port)
+	err = http.ListenAndServe(port, nil)
 	if err != nil {
 		fmt.Println("Error starting server:", err)
 	}
